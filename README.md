@@ -1,112 +1,147 @@
 # My RGB Control
 
-A personalized desktop app to control the RGB on your PC's **fans, RAM, and
-cooler** — running on Pop!_OS (Linux).
+A personalized desktop app to control the RGB on my PC's **fans, cooler, and
+RAM** on Pop!_OS (Linux). Built on top of [OpenRGB](https://openrgb.org) for the
+motherboard/fans, plus direct SMBus control for the DDR5 RAM that OpenRGB can't
+see.
 
-It sits on top of [OpenRGB](https://openrgb.org), which is the engine that
-actually talks to the lighting hardware. Our app talks to OpenRGB over its
-local network SDK and adds a friendly GUI with:
+## What it controls
 
-- 🎨 **Static colours + presets** — pick any colour per device, save/load profiles
-- 🌈 **Animated effects** — Breathing, Rainbow, Wave, Colour Cycle
-- 🌡️ **Temperature reactive** — colours shift blue→red with your CPU temp
-- 🎵 **Audio reactive** — lights pulse to whatever is playing
+| Hardware | How | Status |
+|----------|-----|--------|
+| **9 ARGB fans + AIO** (MSI JRAINBOW headers) | OpenRGB SDK, Direct mode | ✅ full effects |
+| **Kingston Fury Beast DDR5 RAM** | Direct SMBus writes (0x61/0x63) | ✅ static colour |
+| RGB strip (JRGB1) | OpenRGB | ✅ if connected |
+
+**Effects:** Static, Breathing, Rainbow, Wave, Colour Cycle, Temperature-reactive,
+Audio-reactive, plus saveable profiles.
+
+## My hardware (this build is tuned for it)
+
+- **Motherboard:** MSI MAG Z790 Tomahawk WiFi (MS-7D91)
+- **RAM:** Kingston Fury Beast DDR5-6000 CL36 (2 sticks, RGB at SMBus 0x61/0x63)
+- **Case/fans:** Darkflash, 9 ARGB fans across JRAINBOW1/2/3 (60 LEDs each)
+- **OS:** Pop!_OS 22.04 (noble base), Python 3.12
+
+> ⚠️ **Important quirk:** on Linux this board only works in **Direct mode** —
+> OpenRGB can't save hardware modes ("saving not supported"). So the app must be
+> *running* to keep the fans lit. When it's closed the fans go dark; a reboot
+> resets them to the BIOS default. That's why we autostart it. The RAM is
+> different — its colour persists on its own until changed or rebooted.
 
 ---
 
-## One-time setup (on your Pop!_OS PC)
+# Full setup on a fresh Pop!_OS install
 
-### 1. Install OpenRGB (the hardware engine)
+Do these in order. This is everything needed to reproduce the working setup on
+the same hardware.
+
+## 1. Install OpenRGB (the fan/cooler engine)
+
+`apt install openrgb` does **not** work on Pop!_OS — get the official `.deb`:
 
 ```bash
-sudo apt update
-sudo apt install -y openrgb
+cd ~/Downloads
+wget https://codeberg.org/OpenRGB/OpenRGB/releases/download/release_candidate_1.0rc3/openrgb_1.0rc3_amd64_bookworm_6fbcf62.deb
+sudo apt install -y ./openrgb_1.0rc3_amd64_bookworm_6fbcf62.deb
+```
+(Check <https://openrgb.org/releases.html> for a newer build; pick the **bookworm amd64** one.)
+
+## 2. Enable RAM SMBus access (i2c)
+
+```bash
+# load the SMBus driver now and on every boot
+sudo modprobe i2c-dev
+echo "i2c-dev" | sudo tee /etc/modules-load.d/i2c-dev.conf
+
+# let your user (and the app) reach the RAM without sudo
+sudo apt install -y i2c-tools
+sudo groupadd -f i2c
+sudo usermod -aG i2c $USER
+echo 'KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"' | sudo tee /etc/udev/rules.d/99-i2c.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-If `apt` can't find it, grab the `.deb` from <https://openrgb.org/releases.html>
-and install with `sudo dpkg -i openrgb_*.deb`.
+## 3. Reboot
 
-> **Permissions:** OpenRGB needs access to your hardware. Install its udev rules
-> (the package usually does this automatically) and **reboot once** after
-> installing. If devices don't show up, run OpenRGB once with `sudo openrgb`
-> to confirm they're detected, then fix permissions per the OpenRGB docs.
-
-### 2. Let OpenRGB detect your hardware
-
-Open the OpenRGB app once (`openrgb`) and check the **Devices** tab — you should
-see your motherboard, RAM, fans, and cooler listed. This is also how we find out
-what hardware you have. If something's missing, that device may need a different
-connection or isn't yet supported — tell me which and we'll work around it.
-
-### 3. Install this app's dependencies
+Needed for OpenRGB's hardware permissions and the i2c group to take effect.
 
 ```bash
-cd controll-fans
+sudo reboot
+```
+
+## 4. Get this app and install its dependencies
+
+```bash
+git clone https://github.com/luanzeneli/Controll-fans.git
+cd Controll-fans
+sudo apt install -y python3-venv python3-pip libportaudio2
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
----
-
-## Running it
-
-The easy way:
+## 5. Run it
 
 ```bash
-./run.sh
+chmod +x run.sh
+./run.sh          # starts the OpenRGB server + the GUI
 ```
+> Close the OpenRGB GUI window if it's open — only one program can drive the
+> lights at a time. `run.sh` starts its own headless server.
 
-This starts the OpenRGB SDK server (if it isn't already running) and launches
-the GUI.
+## 6. Configure the fans (one time)
 
-Doing it manually instead:
+The ARGB headers report 0 LEDs until told otherwise (this isn't saved in the
+repo — it lives in OpenRGB's config). In the app:
+
+1. Click **"Set up fan LED counts…"**
+2. Set **JRAINBOW1 / 2 / 3** to **60** each → OK.
+3. Pick an effect → **Apply**. Adjust counts down if any fan has a dark tail.
+
+## 7. (Optional) Desktop launcher
 
 ```bash
-# terminal 1 — start the engine's network server
-openrgb --server
-
-# terminal 2 — start the app
-source .venv/bin/activate
-python -m src.app
+./install-shortcut.sh      # adds "My RGB Control" to your apps menu
 ```
 
 ---
 
-## How to use the GUI
+# Using the app
 
-1. Click **Connect** (it auto-connects on launch). You'll see your devices.
-2. **Tick** the devices you want to control.
-3. Choose an **effect**, pick a **colour**, set **speed/brightness**.
-4. Click **Apply effect**.
-5. Save the look as a **Profile** to switch between setups instantly.
-
-- **Temperature** effect → colours follow your CPU temperature.
-- **Audio Reactive** → lights pulse to sound. To react to *music* (not your mic),
-  route your speaker output into an input "monitor" source in your sound settings
-  (PipeWire/PulseAudio), then select that as the default input.
+- **Fans/cooler:** tick devices → choose effect → pick colour/speed/brightness →
+  **Apply effect**. Save looks as **Profiles**.
+- **RAM:** in the "RAM — Kingston Fury DDR5" box → **Pick RAM colour** →
+  **Apply to RAM**. (Greyed out? Log out/in so the i2c group applies.)
+- **Temperature** effect → fans follow CPU temp. **Audio Reactive** → pulses to
+  sound (route speaker output to a 'monitor' input to react to music).
 
 ---
 
-## Project layout
+# Project layout
 
 ```
-controll-fans/
-├── run.sh              # one-command launcher
+Controll-fans/
+├── run.sh                # launcher: OpenRGB server + GUI
+├── install-shortcut.sh   # adds an app-menu/desktop launcher
 ├── requirements.txt
+├── assets/icon.svg
 ├── src/
-│   ├── app.py          # the GUI (PySide6)
-│   ├── rgb_client.py   # wrapper around the OpenRGB SDK
-│   ├── effects.py      # animation + reactive effect engine
-│   ├── monitors.py     # CPU-temp and audio level sources
-│   └── profiles.py     # save/load JSON profiles
-└── profiles/           # your saved looks live here
+│   ├── app.py            # the GUI (PySide6)
+│   ├── rgb_client.py     # OpenRGB SDK wrapper (fans/cooler)
+│   ├── ram.py            # direct SMBus control for DDR5 RAM
+│   ├── effects.py        # animation + reactive effect engine
+│   ├── monitors.py       # CPU-temp + audio sources
+│   └── profiles.py       # save/load JSON profiles
+└── profiles/             # saved looks
 ```
 
-## Troubleshooting
+# Troubleshooting
 
-- **"Couldn't reach the OpenRGB SDK server"** — OpenRGB isn't running with
-  `--server`. Run `openrgb --server` or use `./run.sh`.
-- **No devices listed** — see the permissions note in step 1; reboot after
-  installing OpenRGB, and confirm devices appear in the OpenRGB app itself.
-- **Effects look choppy** — lower the number of selected devices or reduce speed.
+- **"Couldn't reach the OpenRGB SDK server"** → run `./run.sh` (it starts it), or
+  `openrgb --server`.
+- **Fans dark after closing the app** → expected (Direct-mode-only board). Relaunch
+  the app, or reboot for the default red.
+- **RAM box greyed out** → log out/in (i2c group), or check `ls -l /dev/i2c-0`
+  shows group `i2c` and mode `660`.
+- **No devices in OpenRGB** → reboot after installing OpenRGB; confirm they show
+  in the OpenRGB app's Devices tab.
