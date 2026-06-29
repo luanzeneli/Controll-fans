@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from .effects import EFFECTS, EffectEngine
 from .monitors import AudioMonitor, TempMonitor
+from .ram import RAMController
 from .rgb_client import RGBClient
 from . import profiles
 
@@ -38,7 +39,9 @@ class MainWindow(QMainWindow):
         self.engine = EffectEngine(self.client)
         self.temp = TempMonitor()
         self.audio = AudioMonitor()
+        self.ram = RAMController()
         self.current_color = (0, 200, 255)
+        self.ram_color = (255, 0, 0)
 
         self._build_ui()
 
@@ -128,6 +131,23 @@ class MainWindow(QMainWindow):
         fx.addWidget(self.reactive_label)
 
         layout.addWidget(fx_box)
+
+        # RAM (Kingston Fury DDR5 — direct SMBus, separate from OpenRGB)
+        ram_box = QGroupBox("RAM — Kingston Fury DDR5 (static colour)")
+        ram_layout = QHBoxLayout(ram_box)
+        self.ram_color_btn = QPushButton("Pick RAM colour")
+        self.ram_color_btn.clicked.connect(self._pick_ram_color)
+        self.ram_apply_btn = QPushButton("Apply to RAM")
+        self.ram_apply_btn.clicked.connect(self._apply_ram)
+        self.ram_off_btn = QPushButton("RAM off")
+        self.ram_off_btn.clicked.connect(self._ram_off)
+        ram_layout.addWidget(self.ram_color_btn)
+        ram_layout.addWidget(self.ram_apply_btn)
+        ram_layout.addWidget(self.ram_off_btn)
+        layout.addWidget(ram_box)
+        self.ram_box = ram_box
+        self._update_ram_btn()
+        self._refresh_ram_availability()
 
         # profiles
         prof_box = QGroupBox("Profiles")
@@ -276,6 +296,46 @@ class MainWindow(QMainWindow):
         self.color_btn.setStyleSheet(
             f"background-color: rgb({r},{g},{b}); color: {text_color};"
         )
+
+    # -- RAM (direct SMBus) -------------------------------------------------
+
+    def _refresh_ram_availability(self):
+        """Enable RAM controls only if we can actually reach the SMBus."""
+        ok = self.ram.available()
+        for btn in (self.ram_color_btn, self.ram_apply_btn, self.ram_off_btn):
+            btn.setEnabled(ok)
+        if not ok:
+            self.ram_box.setTitle(
+                "RAM — Kingston Fury DDR5 (unavailable — see tooltip)")
+            self.ram_box.setToolTip(self.ram.unavailable_reason())
+        else:
+            self.ram_box.setTitle("RAM — Kingston Fury DDR5 (static colour)")
+            self.ram_box.setToolTip("")
+
+    def _pick_ram_color(self):
+        c = QColorDialog.getColor(QColor(*self.ram_color), self, "RAM colour")
+        if c.isValid():
+            self.ram_color = (c.red(), c.green(), c.blue())
+            self._update_ram_btn()
+
+    def _update_ram_btn(self):
+        r, g, b = self.ram_color
+        text_color = "#000" if (r + g + b) > 380 else "#fff"
+        self.ram_color_btn.setStyleSheet(
+            f"background-color: rgb({r},{g},{b}); color: {text_color};"
+        )
+
+    def _apply_ram(self):
+        try:
+            self.ram.set_color(self.ram_color)
+        except Exception as exc:
+            QMessageBox.warning(self, "RAM control failed", str(exc))
+
+    def _ram_off(self):
+        try:
+            self.ram.turn_off()
+        except Exception as exc:
+            QMessageBox.warning(self, "RAM control failed", str(exc))
 
     # -- applying effects ---------------------------------------------------
 
