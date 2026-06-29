@@ -1,0 +1,12 @@
+# GUI
+PySide6>=6.5
+
+# Talks to the OpenRGB SDK server (the engine that controls the hardware)
+openrgb-python>=0.2.15
+
+# Temperature / load monitoring for reactive effects
+psutil>=5.9
+
+# Audio capture for music-reactive effects
+sounddevice>=0.4.6
+numpy>=1.24

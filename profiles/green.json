@@ -1,0 +1,13 @@
+{
+  "effect": "Static",
+  "color": [
+    0,
+    255,
+    0
+  ],
+  "speed": 30,
+  "brightness": 100,
+  "targets": [
+    0
+  ]
+}
